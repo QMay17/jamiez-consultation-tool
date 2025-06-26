@@ -804,11 +804,159 @@ let selectedTasks = new Set();
 let isAnnualView = false;
 let selectedBundles = new Set();
 
+// ====== URL PERSISTENCE FUNCTIONS ======
+
+// Save state to URL
+function saveStateToURL() {
+    const state = {
+        tasks: Array.from(selectedTasks),
+        bundles: Array.from(selectedBundles),
+        frequency: isAnnualView ? 'annually' : 'monthly'
+    };
+    
+    try {
+        const encodedState = btoa(JSON.stringify(state));
+        const newURL = `${window.location.pathname}?state=${encodedState}`;
+        window.history.replaceState({}, '', newURL);
+    } catch (error) {
+        console.error('Error saving state to URL:', error);
+    }
+}
+
+// Load state from URL
+function loadStateFromURL() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const encodedState = urlParams.get('state');
+    
+    if (encodedState) {
+        try {
+            const state = JSON.parse(atob(encodedState));
+            
+            // Restore selected tasks
+            selectedTasks.clear();
+            if (state.tasks && Array.isArray(state.tasks)) {
+                state.tasks.forEach(taskId => selectedTasks.add(taskId));
+            }
+            
+            // Restore selected bundles
+            selectedBundles.clear();
+            if (state.bundles && Array.isArray(state.bundles)) {
+                state.bundles.forEach(bundleName => selectedBundles.add(bundleName));
+            }
+            
+            // Restore frequency
+            if (state.frequency) {
+                isAnnualView = state.frequency === 'annually';
+            }
+            
+            // Update UI to reflect loaded state
+            restoreUIFromState();
+            
+        } catch (error) {
+            console.error('Error loading state from URL:', error);
+        }
+    }
+}
+
+// Restore UI elements based on loaded state
+function restoreUIFromState() {
+    // Update task checkboxes
+    document.querySelectorAll('.task-checkbox').forEach(checkbox => {
+        const taskId = checkbox.id;
+        checkbox.checked = selectedTasks.has(taskId);
+        
+        if (checkbox.checked) {
+            const taskItem = checkbox.closest('.task-item');
+            if (taskItem) {
+                taskItem.classList.add('selected');
+            }
+        }
+    });
+    
+    // Update bundle buttons
+    document.querySelectorAll('.bundle-btn').forEach(btn => {
+        const bundleName = btn.dataset.bundle;
+        if (selectedBundles.has(bundleName)) {
+            btn.classList.add('active');
+        }
+    });
+    
+    // Update frequency toggle
+    document.querySelectorAll('.freq-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if ((isAnnualView && btn.dataset.freq === 'annually') || 
+            (!isAnnualView && btn.dataset.freq === 'monthly')) {
+            btn.classList.add('active');
+        }
+    });
+    
+    // Update category visibility and summary
+    updateCategoryVisibility();
+    updateSummary();
+}
+
+// Generate shareable link
+function generateShareableLink() {
+    saveStateToURL();
+    return window.location.href;
+}
+
+// Copy link to clipboard
+function copyShareableLink() {
+    const link = generateShareableLink();
+    navigator.clipboard.writeText(link).then(() => {
+        // Show success message
+        showSuccessMessage('Shareable link copied to clipboard!');
+    }).catch(() => {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = link;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        showSuccessMessage('Shareable link copied to clipboard!');
+    });
+}
+
+// Show success message helper
+function showSuccessMessage(message) {
+    // Create temporary success message
+    const successDiv = document.createElement('div');
+    successDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #28a745;
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        z-index: 10000;
+        font-size: 14px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    `;
+    successDiv.textContent = message;
+    document.body.appendChild(successDiv);
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+        if (successDiv.parentNode) {
+            successDiv.parentNode.removeChild(successDiv);
+        }
+    }, 3000);
+}
+
 // DOM Ready
 document.addEventListener('DOMContentLoaded', function() {
     initializeCalculator();
     setupEventListeners();
     populateTaskCategories();
+    
+    // Load state from URL BEFORE updating summary
+    loadStateFromURL();
+    
     updateSummary();
 
     // --- MULTI-VEHICLE SUPPORT ---
@@ -1208,6 +1356,7 @@ function setupEventListeners() {
             this.classList.add('active');
             isAnnualView = this.dataset.freq === 'annually';
             updateSummary();
+            saveStateToURL(); // ADD THIS LINE
         });
     });
 
@@ -1400,6 +1549,7 @@ function populateTaskCategories() {
                 // Update category visibility based on selected tasks
                 updateCategoryVisibility();
                 updateSummary();
+                saveStateToURL(); // ADD THIS LINE
             });
         });
         // On load, ensure tab state matches any pre-selected tasks
@@ -1444,6 +1594,7 @@ function addBundle(bundleName) {
         });
         updateCategoryVisibility();
         updateSummary();
+        saveStateToURL(); // ADD THIS LINE
         if (typeof updateBundleButtonStates === 'function') {
             updateBundleButtonStates();
         }
@@ -1477,6 +1628,7 @@ function addBundle(bundleName) {
     }
     updateCategoryVisibility();
     updateSummary();
+    saveStateToURL(); // ADD THIS LINE
     if (typeof updateBundleButtonStates === 'function') {
         updateBundleButtonStates();
     }
@@ -2401,10 +2553,12 @@ async function saveUserData() {
             contactCity: document.getElementById('contact_city')?.value || '',
             contactState: document.getElementById('contact_state')?.value || '',
             contactZip: document.getElementById('contact_zip')?.value || '',
+            
+            // Demographics
             ageGroup: document.getElementById('age_group')?.value || '',
+            childrenTeens: document.querySelector('input[name="children-teens"]:checked')?.value || '',
             householdSize: document.getElementById('household_size')?.value || '',
             
-            // Property info
             // Property info
             propertyType: document.querySelector('input[name="property-type"]:checked')?.value || '',
             lotTypes: Array.from(document.querySelectorAll('input[name="lot-type"]:checked')).map(cb => cb.value),
